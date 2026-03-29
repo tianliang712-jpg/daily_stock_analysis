@@ -282,7 +282,7 @@ def ai_analysis_pre_market(market):
 3. 【风险提示】1条风险提示"""
 
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.0-flash")
         response = model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
@@ -339,7 +339,7 @@ def ai_analysis_noon(market, opportunities, sector_data):
 4. 【下午机会】1-2只下午可能发力的标的"""
 
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.0-flash")
         response = model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
@@ -402,7 +402,7 @@ def ai_analysis_full(market, opportunities, sector_data):
 5. 【风险提示】1句话"""
 
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.0-flash")
         response = model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
