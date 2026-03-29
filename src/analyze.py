@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-daily_stock_analysis - A股每日智能分析
+daily_stock_analysis - A股每日智能分析工具
 针对田亮的股票池（66只A股，15个板块）
 数据源：AKShare（免费开源）
 AI分析：Gemini API
 推送：企业微信群机器人
+
+支持三种模式：
+- pre_market: 竞价监测（09:15）
+- noon: 午间分析（11:30）
+- full: 收盘分析（15:30）
 """
 
 import os
@@ -21,6 +26,7 @@ import google.generativeai as genai
 # ─── 环境变量 ────────────────────────────────
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 WECHAT_WEBHOOK = os.environ.get("WECHAT_WEBHOOK", "")
+RUN_MODE = os.environ.get("RUN_MODE", "full")
 
 # ─── 内嵌股票池（15个板块） ────────────────────
 STOCK_POOL = {
@@ -109,6 +115,33 @@ def get_market_overview():
                     result[name] = {"close": round(close, 2), "chg_pct": round(chg_pct, 2)}
         except Exception as e:
             result[name] = {"error": str(e)[:50]}
+    return result
+
+
+def get_realtime_data():
+    """获取实时行情（竞价/午盘用）"""
+    result = {}
+    try:
+        # 获取大盘实时行情
+        df = ak.stock_zh_a_spot_em()
+        if df is not None:
+            # 上证
+            sh = df[df['代码'] == '000001']
+            if not sh.empty:
+                result['上证指数'] = {
+                    'close': float(sh.iloc[0]['最新价']) if pd.notna(sh.iloc[0]['最新价']) else 0,
+                    'chg_pct': float(sh.iloc[0]['涨跌幅']) if pd.notna(sh.iloc[0]['涨跌幅']) else 0,
+                    'amount': float(sh.iloc[0]['成交额']) if pd.notna(sh.iloc[0]['成交额']) else 0,
+                }
+            # 创业板
+            cy = df[df['代码'] == '399006']
+            if not cy.empty:
+                result['创业板指'] = {
+                    'close': float(cy.iloc[0]['最新价']) if pd.notna(cy.iloc[0]['最新价']) else 0,
+                    'chg_pct': float(cy.iloc[0]['涨跌幅']) if pd.notna(cy.iloc[0]['涨跌幅']) else 0,
+                }
+    except Exception as e:
+        print(f"实时行情获取失败: {e}")
     return result
 
 
@@ -218,8 +251,103 @@ def find_opportunities(sector_data):
     }
 
 
-def ai_analysis(market, opportunities, sector_data):
-    """Gemini AI分析"""
+def ai_analysis_pre_market(market):
+    """竞价监测 AI 分析"""
+    if not GEMINI_API_KEY:
+        return "（未配置 GEMINI_API_KEY，跳过AI分析）"
+
+    genai.configure(api_key=GEMINI_API_KEY)
+
+    sh = market.get("上证指数", {})
+    cy = market.get("创业板指", {})
+
+    prompt = f"""你是一位专业A股短线分析师，请为投资者提供竞价时段（开盘前）的分析参考。
+
+【隔夜外盘】
+（请根据您了解的美股、港股、A50期指走势提供参考）
+
+【大盘风向】
+上证指数：开盘前点位 {sh.get('close','N/A')}（昨日 {sh.get('chg_pct','N/A'):+}%）
+创业板指：开盘前点位 {cy.get('close','N/A')}（昨日 {cy.get('chg_pct','N/A'):+}%）
+
+【竞价预估】
+根据隔夜信息、板块轮动、资金流向，预判今日竞价方向：
+1. 今日竞价可能高开/低开的板块
+2. 开盘可能强势的标的
+3. 需要避开的风险标的
+
+请用纯文本输出（不用markdown格式），总字数控制在200字以内，包含：
+1. 【竞价方向】高开/低开/平开
+2. 【重点关注】1-2只竞价可能强势的标的
+3. 【风险提示】1条风险提示"""
+
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        return f"AI分析调用失败: {e}"
+
+
+def ai_analysis_noon(market, opportunities, sector_data):
+    """午间分析 AI"""
+    if not GEMINI_API_KEY:
+        return "（未配置 GEMINI_API_KEY，跳过AI分析）"
+
+    genai.configure(api_key=GEMINI_API_KEY)
+
+    sector_summary = []
+    for sector, stocks in sector_data.items():
+        valid = [s for s in stocks if "error" not in s]
+        if valid:
+            avg_chg = sum(s.get("chg_pct", 0) for s in valid) / len(valid)
+            sector_summary.append(f"{sector}({avg_chg:+.1f}%)")
+
+    def fmt_stocks(lst):
+        if not lst:
+            return "无"
+        return "\n".join(
+            [f"  {s['name']}({s['code']}) {s.get('chg_pct',0):+.2f}% 量比{s.get('vol_ratio','N/A')}"
+             for s in lst]
+        )
+
+    sh = market.get("上证指数", {})
+    cy = market.get("创业板指", {})
+
+    prompt = f"""你是一位专业A股短线分析师，请根据以下上午盘面数据，为投资者提供午间操作建议。
+
+【上午盘面】
+上证指数: {sh.get("close","N/A")} ({sh.get("chg_pct","N/A"):+}%)
+创业板指: {cy.get("close","N/A")} ({cy.get("chg_pct","N/A"):+}%)
+
+【上午概况】
+上涨{opportunities["total_up"]}只，下跌{opportunities["total_down"]}只
+
+【板块涨跌】
+{", ".join(sector_summary[:8])}
+
+【上午领涨】
+{fmt_stocks(opportunities["top_gainers"][:3])}
+
+【放量异动】
+{fmt_stocks(opportunities["volume_surge"][:3])}
+
+请用纯文本输出（不用markdown格式），总字数控制在250字以内，包含：
+1. 【上午总结】盘面表现
+2. 【下午展望】可能的走势
+3. 【操作建议】持仓/买入/卖出/观望
+4. 【下午机会】1-2只下午可能发力的标的"""
+
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        return f"AI分析调用失败: {e}"
+
+
+def ai_analysis_full(market, opportunities, sector_data):
+    """收盘分析 AI"""
     if not GEMINI_API_KEY:
         return "（未配置 GEMINI_API_KEY，跳过AI分析）"
 
@@ -281,8 +409,79 @@ def ai_analysis(market, opportunities, sector_data):
         return f"AI分析调用失败: {e}"
 
 
-def build_report(market, opportunities, sector_data, ai_text):
-    """拼装完整推送报告"""
+def build_report_pre_market(market, ai_text):
+    """竞价监测报告"""
+    today = datetime.date.today().strftime("%Y年%m月%d日")
+    now_time = datetime.datetime.now().strftime("%H:%M")
+
+    sh = market.get("上证指数", {})
+    cy = market.get("创业板指", {})
+
+    report = f"""#{'='*50}
+#{' '*15}竞价监测日报
+#{'='*50}
+{today} {now_time}
+
+--------------
+【盘前风向标】
+上证指数（昨日）: {sh.get('close','N/A')}点 ({sh.get('chg_pct','N/A'):+}%)
+创业板指（昨日）: {cy.get('close','N/A')}点 ({cy.get('chg_pct','N/A'):+}%)
+
+--------------
+【AI竞价预判】
+{ai_text}
+
+--------------
+本报告仅供参考，投资有风险，决策需谨慎"""
+
+    return report
+
+
+def build_report_noon(market, opportunities, ai_text):
+    """午间分析报告"""
+    today = datetime.date.today().strftime("%Y年%m月%d日")
+    now_time = datetime.datetime.now().strftime("%H:%M")
+
+    sh = market.get("上证指数", {})
+    cy = market.get("创业板指", {})
+
+    sh_str = f"{sh.get('close','N/A')}点 ({sh.get('chg_pct','N/A'):+}%)" if "close" in sh else "获取失败"
+    cy_str = f"{cy.get('close','N/A')}点 ({cy.get('chg_pct','N/A'):+}%)" if "close" in cy else "获取失败"
+
+    # 领涨标的
+    gainers_str = ""
+    for s in opportunities["top_gainers"][:3]:
+        mark = "+" if s.get("chg_pct", 0) > 0 else ""
+        gainers_str += f"{mark}{s['name']} {s.get('chg_pct',0):+.2f}%\n"
+
+    report = f"""#{'='*50}
+#{' '*15}午间分析报告
+#{'='*50}
+{today} {now_time}
+
+--------------
+【上午盘面】
+上证指数：{sh_str}
+创业板指：{cy_str}
+
+【涨跌概况】
+涨{opportunities['total_up']} 跌{opportunities['total_down']} 平{opportunities['total_flat']}
+
+【上午领涨】
+{gainers_str.strip()}
+
+--------------
+【AI午间点评】
+{ai_text}
+
+--------------
+本报告仅供参考，投资有风险，决策需谨慎"""
+
+    return report
+
+
+def build_report_full(market, opportunities, sector_data, ai_text):
+    """收盘分析报告"""
     today = datetime.date.today().strftime("%Y年%m月%d日")
     now_time = datetime.datetime.now().strftime("%H:%M")
 
@@ -290,45 +489,47 @@ def build_report(market, opportunities, sector_data, ai_text):
     sh = market.get("上证指数", {})
     cy = market.get("创业板指", {})
 
-    sh_str = f"{sh.get('close','N/A')}点 ({sh.get('chg_pct','N/A'):+}%)" if "error" not in sh else "获取失败"
-    cy_str = f"{cy.get('close','N/A')}点 ({cy.get('chg_pct','N/A'):+}%)" if "error" not in cy else "获取失败"
+    sh_str = f"{sh.get('close','N/A')}点 ({sh.get('chg_pct','N/A'):+}%)" if "close" in sh else "获取失败"
+    cy_str = f"{cy.get('close','N/A')}点 ({cy.get('chg_pct','N/A'):+}%)" if "close" in cy else "获取失败"
 
     # 领涨标的
     gainers_str = ""
     for s in opportunities["top_gainers"][:3]:
-        mark = "🔴" if s.get("chg_pct", 0) > 0 else "🟢"
+        mark = "+" if s.get("chg_pct", 0) > 0 else ""
         gainers_str += f"{mark}{s['name']} {s.get('chg_pct',0):+.2f}%\n"
 
     # 放量异动
     surge_str = ""
     for s in opportunities["volume_surge"][:3]:
-        surge_str += f"⚡{s['name']} +{s.get('chg_pct',0):.2f}% 量比{s.get('vol_ratio','N/A')}x\n"
+        surge_str += f"+{s['name']} +{s.get('chg_pct',0):.2f}% 量比{s.get('vol_ratio','N/A')}x\n"
     if not surge_str:
         surge_str = "今日无明显放量异动\n"
 
-    report = f"""📊 每日股市分析报告
-{today} {now_time} | 田亮股票池追踪
+    report = f"""#{'='*50}
+#{' '*15}每日股市分析
+#{'='*50}
+{today} {now_time} | 田亮股票池
 
-━━━━━━━━━━━━
-📈 大盘行情
+--------------
+【大盘行情】
 上证指数：{sh_str}
 创业板指：{cy_str}
 
-📊 股票池概况
+【股票池概况】
 共{opportunities["total_count"]}只 | 涨{opportunities["total_up"]} 跌{opportunities["total_down"]} 平{opportunities["total_flat"]}
 
-🔥 今日领涨（TOP3）
+【今日领涨】
 {gainers_str.strip()}
 
-⚡ 放量异动标的
+【放量异动】
 {surge_str.strip()}
 
-━━━━━━━━━━━━
-🤖 AI智能点评
+--------------
+【AI智能点评】
 {ai_text}
 
-━━━━━━━━━━━━
-⚠️ 本报告仅供参考，投资有风险，决策需谨慎"""
+--------------
+本报告仅供参考，投资有风险，决策需谨慎"""
 
     return report
 
@@ -358,25 +559,65 @@ def send_to_wechat(content):
 
 def main():
     print("=" * 60)
-    print("daily_stock_analysis 启动")
+    print(f"daily_stock_analysis 启动 | 模式: {RUN_MODE}")
     print(f"时间: {datetime.datetime.now()}")
     print("=" * 60)
 
-    print("\n[1/4] 获取大盘数据...")
-    market = get_market_overview()
-    print(f"  上证: {market.get('上证指数', {})}")
+    # 根据模式执行不同逻辑
+    if RUN_MODE == "pre_market":
+        # 竞价监测模式
+        print("\n[竞价模式] 获取隔夜/盘前信息...")
+        market = get_realtime_data()
+        print(f"  盘前数据: {market}")
 
-    print("\n[2/4] 采集股票池数据...")
-    sector_data = collect_all_stocks()
+        print("\n[AI分析] 生成竞价预判...")
+        ai_text = ai_analysis_pre_market(market)
 
-    print("\n[3/4] 分析机会...")
-    opportunities = find_opportunities(sector_data)
-    print(f"  上涨{opportunities['total_up']}只，下跌{opportunities['total_down']}只")
+        print("\n[生成报告]...")
+        report = build_report_pre_market(market, ai_text)
 
-    print("\n[4/4] AI分析+生成报告+推送...")
-    ai_text = ai_analysis(market, opportunities, sector_data)
-    report = build_report(market, opportunities, sector_data, ai_text)
-    send_to_wechat(report)
+        if WECHAT_WEBHOOK:
+            send_to_wechat(report)
+
+    elif RUN_MODE == "noon":
+        # 午间分析模式
+        print("\n[午间模式] 获取上午盘面...")
+        market = get_realtime_data()
+        print(f"  大盘: {market}")
+
+        print("\n[采集数据] 获取个股上午表现...")
+        sector_data = collect_all_stocks()
+
+        print("\n[分析机会]...")
+        opportunities = find_opportunities(sector_data)
+        print(f"  上涨{opportunities['total_up']}只，下跌{opportunities['total_down']}只")
+
+        print("\n[AI分析] 生成午间点评...")
+        ai_text = ai_analysis_noon(market, opportunities, sector_data)
+
+        print("\n[生成报告]...")
+        report = build_report_noon(market, opportunities, ai_text)
+
+        if WECHAT_WEBHOOK:
+            send_to_wechat(report)
+
+    else:
+        # 完整模式（收盘）
+        print("\n[完整模式] 获取大盘数据...")
+        market = get_market_overview()
+        print(f"  上证: {market.get('上证指数', {})}")
+
+        print("\n[采集股票池数据]...")
+        sector_data = collect_all_stocks()
+
+        print("\n[分析机会]...")
+        opportunities = find_opportunities(sector_data)
+        print(f"  上涨{opportunities['total_up']}只，下跌{opportunities['total_down']}只")
+
+        print("\n[AI分析+生成报告+推送]...")
+        ai_text = ai_analysis_full(market, opportunities, sector_data)
+        report = build_report_full(market, opportunities, sector_data, ai_text)
+        send_to_wechat(report)
 
     # 保存本地备份
     with open("report_latest.txt", "w", encoding="utf-8") as f:
