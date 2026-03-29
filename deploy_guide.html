@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>daily_stock_analysis 保姆级部署指南</title>
+<style>
+  :root {
+    --red: #e84040;
+    --green: #17a85a;
+    --blue: #1a6fe8;
+    --dark: #1a1a2e;
+    --card: #ffffff;
+    --bg: #f4f6fb;
+    --border: #e0e6f0;
+    --text: #2d3748;
+    --muted: #718096;
+    --code-bg: #1e2235;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.7;
+  }
+
+  /* Header */
+  .hero {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%);
+    color: #fff; padding: 60px 32px 48px; text-align: center;
+  }
+  .hero h1 { font-size: 2.4rem; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 12px; }
+  .hero h1 span { color: #f59e0b; }
+  .hero p { font-size: 1.1rem; color: rgba(255,255,255,0.75); max-width: 600px; margin: 0 auto; }
+  .hero .badges { margin-top: 20px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .badge {
+    padding: 5px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;
+    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); color: #fff;
+  }
+  .badge.green { background: #17a85a22; border-color: #17a85a; color: #4ade80; }
+  .badge.yellow { background: #f59e0b22; border-color: #f59e0b; color: #fcd34d; }
+  .badge.blue { background: #1a6fe822; border-color: #1a6fe8; color: #93c5fd; }
+
+  /* Layout */
+  .container { max-width: 900px; margin: 0 auto; padding: 40px 20px 80px; }
+
+  /* Step cards */
+  .steps { display: flex; flex-direction: column; gap: 28px; }
+  .step-card {
+    background: var(--card); border-radius: 16px; border: 1px solid var(--border);
+    overflow: hidden; box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+  }
+  .step-header {
+    display: flex; align-items: center; gap: 16px; padding: 20px 24px;
+    border-bottom: 1px solid var(--border); background: #fafbff;
+  }
+  .step-num {
+    width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; font-size: 1.1rem; font-weight: 800; flex-shrink: 0;
+    background: var(--blue); color: #fff;
+  }
+  .step-num.done { background: var(--green); }
+  .step-num.warn { background: var(--red); }
+  .step-title { font-size: 1.15rem; font-weight: 700; color: var(--dark); }
+  .step-subtitle { font-size: 0.85rem; color: var(--muted); margin-top: 2px; }
+  .step-body { padding: 24px; }
+
+  /* Secret table */
+  .secret-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.9rem; }
+  .secret-table th {
+    background: #f0f4ff; color: var(--blue); font-weight: 700;
+    padding: 10px 14px; text-align: left; border-bottom: 2px solid var(--blue);
+  }
+  .secret-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .secret-table tr:last-child td { border-bottom: none; }
+  .secret-table .key {
+    font-family: "Fira Code", Consolas, monospace; font-size: 0.88rem;
+    background: #f0f4ff; padding: 3px 8px; border-radius: 6px; color: var(--blue);
+    white-space: nowrap;
+  }
+  .secret-table .link { color: var(--blue); text-decoration: none; font-size: 0.85rem; }
+  .secret-table .link:hover { text-decoration: underline; }
+
+  /* Code blocks */
+  .code-block {
+    background: var(--code-bg); border-radius: 10px; padding: 18px 20px; margin: 14px 0;
+    font-family: "Fira Code", Consolas, "Courier New", monospace; font-size: 0.88rem;
+    color: #e2e8f0; overflow-x: auto; position: relative;
+  }
+  .code-block .comment { color: #6b7fa0; }
+  .code-block .keyword { color: #f59e0b; }
+  .code-block .string { color: #4ade80; }
+  .code-block .num { color: #93c5fd; }
+
+  /* Steps list */
+  .op-steps { list-style: none; counter-reset: op-counter; }
+  .op-steps li {
+    counter-increment: op-counter; padding: 10px 16px 10px 52px; position: relative;
+    border-left: 2px solid var(--border); margin-left: 14px; margin-bottom: 4px;
+  }
+  .op-steps li::before {
+    content: counter(op-counter); position: absolute; left: -16px; top: 8px;
+    width: 30px; height: 30px; background: var(--blue); color: #fff;
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 0.82rem; font-weight: 700; flex-shrink: 0;
+  }
+  .op-steps li:last-child { border-left-color: transparent; }
+
+  /* Tip / Warning boxes */
+  .tip {
+    border-radius: 10px; padding: 14px 18px; margin: 14px 0; font-size: 0.9rem;
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .tip.info { background: #eff6ff; border-left: 4px solid var(--blue); color: #1e40af; }
+  .tip.warn { background: #fff7ed; border-left: 4px solid #f59e0b; color: #92400e; }
+  .tip.success { background: #f0fdf4; border-left: 4px solid var(--green); color: #166534; }
+  .tip .icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
+
+  /* Schedule table */
+  .schedule-table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 0.9rem; }
+  .schedule-table th { background: #1a1a2e; color: #fff; padding: 10px 16px; text-align: left; }
+  .schedule-table td { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  .schedule-table tr:nth-child(even) td { background: #fafbff; }
+  .time-chip {
+    background: var(--red); color: #fff; border-radius: 6px;
+    padding: 3px 10px; font-size: 0.82rem; font-weight: 700; display: inline-block;
+  }
+
+  /* Report preview */
+  .report-preview {
+    background: #1a1a2e; color: #e2e8f0; border-radius: 14px; padding: 24px;
+    font-family: "Fira Code", Consolas, monospace; font-size: 0.85rem; line-height: 1.9;
+    margin: 16px 0; white-space: pre-wrap;
+  }
+  .report-preview .up { color: #f87171; }
+  .report-preview .down { color: #4ade80; }
+  .report-preview .highlight { color: #f59e0b; font-weight: 700; }
+  .report-preview .dim { color: #6b7fa0; }
+  .report-preview .section { color: #93c5fd; }
+
+  /* FAQ */
+  .faq-item { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+  .faq-q {
+    padding: 14px 20px; font-weight: 700; background: #fafbff; cursor: pointer;
+    font-size: 0.95rem; color: var(--dark);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .faq-q::after { content: "▾"; color: var(--blue); font-size: 1rem; }
+  .faq-a { padding: 14px 20px; font-size: 0.9rem; color: var(--muted); border-top: 1px solid var(--border); }
+
+  /* File tree */
+  .file-tree {
+    background: var(--code-bg); color: #e2e8f0; border-radius: 10px;
+    padding: 18px 20px; font-family: Consolas, monospace; font-size: 0.88rem;
+    line-height: 1.8;
+  }
+  .file-tree .dir { color: #93c5fd; font-weight: 700; }
+  .file-tree .file { color: #4ade80; }
+  .file-tree .yaml { color: #f59e0b; }
+  .file-tree .md { color: #c084fc; }
+  .file-tree .txt { color: #94a3b8; }
+
+  /* Section title */
+  .section-title {
+    font-size: 1.5rem; font-weight: 800; color: var(--dark);
+    margin: 48px 0 20px; padding-bottom: 10px;
+    border-bottom: 3px solid var(--blue); display: inline-block;
+  }
+
+  /* Progress bar */
+  .progress-bar {
+    display: flex; gap: 0; margin: 24px 0 32px; border-radius: 10px; overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  }
+  .progress-step {
+    flex: 1; padding: 12px 8px; text-align: center; font-size: 0.78rem; font-weight: 700;
+    background: #e5eaf5; color: var(--muted);
+  }
+  .progress-step.active { background: var(--blue); color: #fff; }
+  .progress-step.done { background: var(--green); color: #fff; }
+
+  /* Responsive */
+  @media(max-width: 600px) {
+    .hero h1 { font-size: 1.7rem; }
+    .step-body { padding: 16px; }
+    .secret-table th, .secret-table td { padding: 8px 10px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <h1>📊 <span>daily_stock_analysis</span></h1>
+  <p>A股每日智能分析系统 · 一次部署，每天自动推送到企业微信</p>
+  <div class="badges">
+    <span class="badge green">✓ AKShare 免费数据</span>
+    <span class="badge yellow">✓ Gemini AI 分析</span>
+    <span class="badge blue">✓ GitHub Actions 自动运行</span>
+    <span class="badge">66只A股 · 15个板块</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- 进度概览 -->
+  <div class="progress-bar">
+    <div class="progress-step done">① Fork仓库</div>
+    <div class="progress-step done">② 配置密钥</div>
+    <div class="progress-step done">③ 启用Actions</div>
+    <div class="progress-step done">④ 手动测试</div>
+    <div class="progress-step done">⑤ 自动运行</div>
+  </div>
+
+  <!-- 项目文件结构 -->
+  <div class="section-title">项目文件结构</div>
+  <div class="file-tree">
+<span class="dir">daily_stock_analysis/</span>
+├── <span class="dir">.github/workflows/</span>
+│   └── <span class="yaml">daily_analysis.yml</span>        ← GitHub Actions 工作流（定时触发）
+├── <span class="dir">src/</span>
+│   └── <span class="file">analyze.py</span>                ← 核心脚本（数据+AI+推送）
+├── <span class="md">README.md</span>                       ← 项目说明
+├── <span class="file">requirements.txt</span>              ← Python 依赖
+└── <span class="txt">.gitignore</span>
+  </div>
+
+  <!-- 部署步骤 -->
+  <div class="section-title">五步完成部署</div>
+  <div class="steps">
+
+    <!-- Step 1 -->
+    <div class="step-card">
+      <div class="step-header">
+        <div class="step-num done">1</div>
+        <div>
+          <div class="step-title">上传代码到你的 GitHub 仓库</div>
+          <div class="step-subtitle">将本地文件推送到 GitHub（已准备好，直接用）</div>
+        </div>
+      </div>
+      <div class="step-body">
+        <p style="margin-bottom:12px;">首先在 GitHub 上新建一个<strong>公开或私有仓库</strong>（建议私有，保护你的股票策略），然后把本地文件推送上去：</p>
+        <div class="code-block">
+<span class="comment"># 在 PowerShell 中执行（文件已在 WorkBuddy/daily_stock_analysis 目录）</span>
+cd C:\Users\gftlwan\WorkBuddy\daily_stock_analysis
+
+<span class="comment"># 初始化 Git（如果还没有）</span>
+git init
+git add .
+git commit -m <span class="string">"feat: 初始化daily_stock_analysis项目"</span>
+
+<span class="comment"># 关联你的 GitHub 仓库（替换为你的仓库地址）</span>
+git remote add origin https://github.com/<span class="keyword">你的用户名</span>/daily_stock_analysis.git
+git branch -M main
+git push -u origin main
+        </div>
+        <div class="tip info">
+          <span class="icon">💡</span>
+          <span>或者直接在 GitHub 网页上新建仓库，然后把 <code>src/analyze.py</code>、<code>requirements.txt</code>、<code>.github/workflows/daily_analysis.yml</code> 三个文件手动上传也可以。</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="step-card">
+      <div class="step-header">
+        <div class="step-num warn">2</div>
+        <div>
+          <div class="step-title">配置 Secrets 密钥（最重要！）</div>
+          <div class="step-subtitle">Settings → Secrets and variables → Actions → New repository secret</div>
+        </div>
+      </div>
+      <div class="step-body">
+        <ol class="op-steps">
+          <li>打开你的 GitHub 仓库页面</li>
+          <li>点击顶部 <strong>Settings（设置）</strong> 标签</li>
+          <li>左侧菜单找到 <strong>Secrets and variables → Actions</strong></li>
+          <li>点击绿色按钮 <strong>"New repository secret"</strong></li>
+          <li>依次添加下表中的 2 个密钥</li>
+        </ol>
+
+        <table class="secret-table">
+          <thead>
+            <tr><th>密钥名称（Name）</th><th>值（Secret）</th><th>获取方式</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="key">GEMINI_API_KEY</span></td>
+              <td>形如 <code>AIzaSy...</code></td>
+              <td>
+                <a class="link" href="https://aistudio.google.com/app/apikey" target="_blank">
+                  🔗 Google AI Studio 免费申请
+                </a><br>
+                <small>（每分钟15次请求，完全够用）</small>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="key">WECHAT_WEBHOOK</span></td>
+              <td>形如 <code>https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...</code></td>
+              <td>
+                企业微信群 → 右键群名 → <strong>添加群机器人</strong> → 复制 Webhook 地址
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="tip warn">
+          <span class="icon">⚠️</span>
+          <span><strong>密钥名称必须完全一致</strong>（区分大小写）。不要在值中加引号。添加后只能看到名称、无法看到值，这是正常的安全设计。</span>
+        </div>
+        <div class="tip success">
+          <span class="icon">✅</span>
+          <span>股票池（66只A股）已<strong>内嵌在脚本中</strong>，无需配置 STOCK_LIST。</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div class="step-card">
+      <div class="step-header">
+        <div class="step-num">3</div>
+        <div>
+          <div class="step-title">启用 GitHub Actions 工作流</div>
+          <div class="step-subtitle">Fork/新建仓库后 Actions 默认需要手动启用</div>
+        </div>
+      </div>
+      <div class="step-body">
+        <ol class="op-steps">
+          <li>点击仓库顶部 <strong>Actions</strong> 标签</li>
+          <li>如看到黄色提示框，点击 <strong>"I understand my workflows, go ahead and enable them"</strong></li>
+          <li>左侧 Workflow 列表中点击 <strong>daily_stock_analysis</strong></li>
+          <li>如看到 "This workflow is disabled" 提示，点击 <strong>Enable workflow</strong></li>
+        </ol>
+        <div class="tip info">
+          <span class="icon">⏰</span>
+          <span>工作流已设置为每个工作日 <strong>09:25</strong>（早盘前）和 <strong>15:30</strong>（收盘后）自动触发，无需其他操作。</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 4 -->
+    <div class="step-card">
+      <div class="step-header">
+        <div class="step-num">4</div>
+        <div>
+          <div class="step-title">手动触发测试（强烈建议）</div>
+          <div class="step-subtitle">确认系统正常工作，企业微信能收到消息</div>
+        </div>
+      </div>
+      <div class="step-body">
+        <ol class="op-steps">
+          <li>进入 <strong>Actions → daily_stock_analysis</strong></li>
+          <li>点击右侧 <strong>"Run workflow"</strong> 下拉按钮</li>
+          <li>选择分支 <strong>main</strong>，点击绿色 <strong>"Run workflow"</strong> 确认</li>
+          <li>等待 <strong>2-5 分钟</strong>（AKShare 采集约60只股票需时），看到绿色 ✅ 说明成功</li>
+          <li>去企业微信群确认是否收到分析报告</li>
+        </ol>
+        <div class="tip success">
+          <span class="icon">🎉</span>
+          <span>若 Actions 显示绿色对勾，企业微信收到消息，部署完成！</span>
+        </div>
+        <div class="tip warn">
+          <span class="icon">🔍</span>
+          <span>若失败，点击红色 ❌ 进入日志，展开 <strong>"Run stock analysis"</strong> 步骤查看报错原因。</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 5 -->
+    <div class="step-card">
+      <div class="step-header">
+        <div class="step-num done">5</div>
+        <div>
+          <div class="step-title">自动定时运行（坐等收报告）</div>
+          <div class="step-subtitle">每个交易日两次自动推送，无需任何操作</div>
+        </div>
+      </div>
+      <div class="step-body">
+        <table class="schedule-table">
+          <thead>
+            <tr><th>北京时间</th><th>UTC时间（GitHub用）</th><th>用途</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="time-chip">09:25</span></td>
+              <td>01:25</td>
+              <td>早盘开盘前 — 分析竞价方向，决定今日是否出手</td>
+            </tr>
+            <tr>
+              <td><span class="time-chip">15:30</span></td>
+              <td>07:30</td>
+              <td>收盘后 — 复盘当日涨跌，AI给出明日操作建议</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="tip info">
+          <span class="icon">📅</span>
+          <span>GitHub Actions 的 cron 只在工作日（周一至五）触发，已通过 <code>1-5</code> 参数设置，周六日不会运行。</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /steps -->
+
+  <!-- 推送报告预览 -->
+  <div class="section-title">推送报告效果预览</div>
+  <div class="report-preview"><span class="highlight">📊 每日股市分析报告</span>
+<span class="dim">2026年03月29日 15:30 | 田亮股票池追踪</span>
+
+<span class="section">━━━━━━━━━━━━</span>
+<span class="highlight">📈 大盘行情</span>
+上证指数：<span class="up">3312.50</span>点 (<span class="up">+0.82%</span>)
+创业板指：<span class="up">2134.80</span>点 (<span class="up">+1.45%</span>)
+
+<span class="highlight">📊 股票池概况</span>
+共52只 | 涨<span class="up">38</span> 跌<span class="down">12</span> 平2
+
+<span class="highlight">🔥 今日领涨（TOP3）</span>
+🔴比亚迪(002594) <span class="up">+4.21%</span> 量比2.3x
+🔴中科创达(300496) <span class="up">+3.88%</span> 量比1.6x
+🔴东方财富(300059) <span class="up">+2.96%</span> 量比1.8x
+
+<span class="highlight">⚡ 放量异动标的</span>
+⚡比亚迪 +4.21% 量比2.3x
+⚡东方财富 +2.96% 量比1.8x
+
+<span class="section">━━━━━━━━━━━━</span>
+<span class="highlight">🤖 AI智能点评</span>
+<span class="dim">【大盘研判】今日创业板大幅领涨，市场风险偏好明显提升，短线偏多。
+【热点板块】AI算力板块整体涨幅1.8%，量能显著放大，市场资金持续流入AI概念。
+【关注标的】东方财富成交量是5日均量的1.8倍，量价齐升站上5日均线，若明日高开可轻仓跟进。
+【操作建议】控制仓位在5成以内，优先关注AI算力板块放量标的，设好止损不追高。
+【风险提示】周末消息面存在不确定性，明日谨防高开低走。</span>
+
+<span class="section">━━━━━━━━━━━━</span>
+<span class="dim">⚠️ 本报告仅供参考，投资有风险，决策需谨慎</span></div>
+
+  <!-- 常见问题 -->
+  <div class="section-title">常见问题</div>
+
+  <div class="faq-item">
+    <div class="faq-q">❌ Actions 运行失败，红色叉叉怎么办？</div>
+    <div class="faq-a">
+      点击红色 ❌ 进入日志 → 展开 "Run stock analysis" 步骤 → 查看最后几行报错。<br>
+      常见原因：① GEMINI_API_KEY 拼写错误或已过期 → 重新添加 Secret；
+      ② WECHAT_WEBHOOK 地址错误 → 检查是否完整复制；
+      ③ AKShare 数据接口临时异常 → 等几分钟重新触发。
+    </div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">📵 没有收到企业微信消息？</div>
+    <div class="faq-a">
+      ① 确认 Webhook 地址完整（以 <code>https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=</code> 开头）<br>
+      ② 在企业微信群内确认机器人没有被删除<br>
+      ③ Actions 日志里搜 "企业微信推送成功"，如果出现说明推送了但可能被过滤
+    </div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">➕ 想修改股票池（增删股票）怎么办？</div>
+    <div class="faq-a">
+      编辑 <code>src/analyze.py</code> 中的 <code>STOCK_POOL</code> 字典，格式为 <code>("代码", "名称")</code>。<br>
+      A股代码规则：沪市主板6开头（如 <code>600519</code>）；深市主板0开头（如 <code>002594</code>）；创业板3开头（如 <code>300750</code>）。<br>
+      <strong>注意：科创板688开头的股票数据接口可能有限制，建议不加。</strong>
+    </div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">⏰ 想修改触发时间怎么办？</div>
+    <div class="faq-a">
+      编辑 <code>.github/workflows/daily_analysis.yml</code> 中的 <code>cron</code> 字段。<br>
+      注意：GitHub cron 用的是 <strong>UTC 时间</strong>，北京时间（UTC+8）需减8小时。<br>
+      例如北京时间 14:30 = UTC 06:30 = cron 写 <code>30 6 * * 1-5</code>
+    </div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">💰 GitHub Actions 会收费吗？</div>
+    <div class="faq-a">
+      公开仓库：<strong>完全免费，无限使用</strong>。<br>
+      私有仓库：每月免费 2000 分钟。本项目每次运行约 3-5 分钟，每月约 40 次，共约 200 分钟，远在免费额度内。
+    </div>
+  </div>
+
+  <!-- 本地测试 -->
+  <div class="section-title">本地测试（可选）</div>
+  <div class="step-card">
+    <div class="step-body">
+      <p style="margin-bottom:14px;">如果想在本机先测试一下再上传，可以这样做：</p>
+      <div class="code-block">
+<span class="comment"># 安装依赖</span>
+pip install -r requirements.txt
+
+<span class="comment"># 设置环境变量（PowerShell）</span>
+$env:GEMINI_API_KEY = <span class="string">"你的APIKey"</span>
+$env:WECHAT_WEBHOOK = <span class="string">"你的Webhook地址"</span>
+
+<span class="comment"># 运行脚本</span>
+cd src
+python analyze.py
+      </div>
+      <div class="tip info">
+        <span class="icon">💡</span>
+        <span>本地运行时不会受GitHub限制，可以先把 WECHAT_WEBHOOK 留空测试数据采集，报告会打印到控制台。</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="text-align:center; margin-top:48px; color:var(--muted); font-size:0.85rem; padding:20px; border-top:1px solid var(--border);">
+    ⚠️ 本系统仅供个人学习参考，不构成任何投资建议。股市有风险，投资需谨慎。
+    <br>田亮专属 · daily_stock_analysis · 2026
+  </div>
+
+</div><!-- /container -->
+
+</body>
+</html>
