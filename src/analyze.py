@@ -362,13 +362,15 @@ def ai_analysis_pre_market(market):
 2. 开盘可能强势的标的
 3. 需要避开的风险标的
 
-请用纯文本输出（不用markdown格式），总字数控制在200字以内，包含：
+请严格用中文输出（禁止英文），纯文本格式（不用markdown），总字数控制在200字以内，包含：
 1. 【竞价方向】高开/低开/平开
 2. 【重点关注】1-2只竞价可能强势的标的
-3. 【风险提示】1条风险提示"""
+3. 【风险提示】1条风险提示
+
+重要：全程使用中文，不得出现英文单词。"""
 
     try:
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-2.0-flash", system_instruction="你是专业A股分析师，必须全程使用中文回答，禁止使用英文。")
         response = model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
@@ -418,14 +420,16 @@ def ai_analysis_noon(market, opportunities, sector_data):
 【放量异动】
 {fmt_stocks(opportunities["volume_surge"][:3])}
 
-请用纯文本输出（不用markdown格式），总字数控制在250字以内，包含：
+请严格用中文输出（禁止英文），纯文本格式（不用markdown），总字数控制在250字以内，包含：
 1. 【上午总结】盘面表现
 2. 【下午展望】可能的走势
 3. 【操作建议】持仓/买入/卖出/观望
-4. 【下午机会】1-2只下午可能发力的标的"""
+4. 【下午机会】1-2只下午可能发力的标的
+
+重要：全程使用中文，不得出现英文单词。"""
 
     try:
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-2.0-flash", system_instruction="你是专业A股分析师，必须全程使用中文回答，禁止使用英文。")
         response = model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
@@ -480,15 +484,17 @@ def ai_analysis_full(market, opportunities, sector_data):
 【调整TOP5】
 {fmt_stocks(opportunities["top_losers"])}
 
-请用纯文本输出（不用markdown格式），包含以下5部分，总字数控制在350字以内：
+请严格用中文输出（禁止英文），纯文本格式（不用markdown），包含以下5部分，总字数控制在350字以内：
 1. 【大盘研判】1-2句，判断短线趋势
 2. 【热点板块】今日最强1-2个板块及逻辑
 3. 【关注标的】1-2只明日值得关注的品种和理由
 4. 【操作建议】1条核心建议（控仓/轻仓/等待/止损等）
-5. 【风险提示】1句话"""
+5. 【风险提示】1句话
+
+重要：全程使用中文，不得出现英文单词。"""
 
     try:
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-2.0-flash", system_instruction="你是专业A股分析师，必须全程使用中文回答，禁止使用英文。")
         response = model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
